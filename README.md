@@ -63,6 +63,9 @@ pip install deepspeed
 python prepare_data.py
 ```
 
+This step aggregates the six method result files under `dataset/<method>/hotpot/`
+according to `dataset/data_splits.json`.
+
 ### 2. Build pairwise data
 
 ```bash
@@ -137,9 +140,3 @@ These map to:
 - `Effic.`
 - `CPP`
 - `ICER-Q`
-
-## Current limitations
-
-1. `prepare_data.py` rebuilds splits from the shipped `dataset/full_dataset.csv`.
-2. You may hit OOM if the selected GPU is busy.
-3. The smoke checkpoint is only for pipeline verification.

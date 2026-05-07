@@ -63,6 +63,8 @@ pip install deepspeed
 python prepare_data.py
 ```
 
+这一步会按 `dataset/data_splits.json`，从 `dataset/<method>/hotpot/` 下六个方法的结果文件聚合出标准 split。
+
 输出：
 
 - `dataset/train.csv`
@@ -190,7 +192,4 @@ python router/dynamic_cost_router.py \
 - `router_metrics.cpp` -> `CPP`
 - `router_metrics.icer_qagn` -> `ICER-Q`
 
-## 当前限制
 
-1. `prepare_data.py` 当前是从仓库自带的 `dataset/full_dataset.csv` 重建 split。
-2. 如果目标 GPU 很忙，训练或前向会 OOM。
