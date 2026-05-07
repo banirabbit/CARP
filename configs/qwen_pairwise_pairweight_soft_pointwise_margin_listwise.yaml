@@ -1,0 +1,85 @@
+# Soft pair weighting + stronger pointwise regression + dynamic symmetric margin + listwise auxiliary loss.
+
+model:
+  model_name_or_path: "Qwen/Qwen2.5-1.5B-Instruct"
+  num_methods: 6
+  method_vocab: ["dalk", "gr", "hippo", "lgraph", "light", "qagn"]
+  use_method_embedding: false
+  method_embedding_scale: 1.0
+  method_embedding_init_std: 0.02
+  pooling_mode: "mean"
+  dropout: 0.1
+  use_gradient_checkpointing: true
+  max_length: 256
+  temperature: 1.8
+  learnable_temperature: false
+  margin: 0.08
+  loss_type: "pairwise"
+  pairwise_weight: 1.0
+  pairwise_margin_mode: "symmetric"
+  dynamic_margin_enabled: true
+  dynamic_margin_scale: 0.2
+  dynamic_margin_power: 1.0
+  dynamic_margin_max: 0.25
+  pointwise_weight: 1.0
+  pointwise_loss_type: "huber"
+  pointwise_huber_beta: 0.1
+  pointwise_apply_sigmoid: true
+  listwise_weight: 0.1
+  listwise_loss_type: "kl"
+  listwise_target_temperature: 0.5
+  listwise_min_methods: 3
+
+training:
+  train_file: "dataset/pairwise/train_pairwise.csv"
+  val_file: "dataset/pairwise/val_pairwise.csv"
+  test_file: "dataset/pairwise/test_pairwise.csv"
+
+  batch_size_q: 4
+  num_methods: 6
+  gradient_accumulation_steps: 4
+
+  num_epochs: 3
+  learning_rate: 2.4e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  max_grad_norm: 0.8
+
+  freeze_backbone_epochs: 0
+  temperature_schedule: "linear"
+
+  optimizer_type: "adamw"
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  scheduler_type: "cosine"
+
+  eval_steps: 500
+  save_steps: 1
+  logging_steps: 50
+
+  output_dir: "outputs/pairwise_pairweight_soft_pointwise_margin_listwise"
+
+  use_ddp: false
+  fp16: false
+  bf16: true
+
+  metric_for_best_model: "loss"
+  greater_is_better: false
+  f1_prior_alpha: 0.0
+
+  checkpoint_opportunity_threshold: 0.05
+  checkpoint_overall_gain_floor: -0.005
+  checkpoint_easy_regret_ceiling: 0.01
+
+  seed: 42
+  num_workers: 4
+  pin_memory: true
+
+  use_class_weights: true
+  weight_type: "sqrt_inverse"
+  use_pair_score_weights: true
+  pair_score_weight_floor: 0.7
+  pair_score_weight_power: 1.0
+  tied_best_weight: 0.95
+  num_best_methods_weight_power: 0.1
