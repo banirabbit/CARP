@@ -41,17 +41,6 @@ Training inputs are JSONL files. Each row records one complete query and observe
 
 The default candidate order is `qagn dalk gr hippo lgraph light`, with QAGN as the zero-uplift anchor. All training rows must contain F1 and total-token observations for every candidate. This fixed-candidate assumption is deliberate: a newly added service needs sufficient observations to train both its quality coordinate and DynCost head before it can be routed.
 
-## Data ingestion
-
-The command-line components consume the canonical JSONL above. For the archived repository data, `scripts/prepare_execution_data.py` reads the six per-service execution logs under `legacy_original/dataset/<service>/<benchmark>/results.score.json` and `legacy_original/dataset/data_splits.json`. It keeps only query IDs shared by all requested services and writes one query-level record for each train, validation, and test split. The legacy `dataset/pairwise` CSV files are not used by the revised uplift formulation.
-
-~~~bash
-python scripts/prepare_execution_data.py \
-  --dataset-dir legacy_original/dataset --benchmark hotpot \
-  --output-dir data/hotpot
-~~~
-
-For a fresh clone, supply an externally obtained directory with this same layout through `--dataset-dir`; neither raw execution logs nor derived split files are versioned.
 
 ## Main workflow
 
