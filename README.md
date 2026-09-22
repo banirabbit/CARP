@@ -1,142 +1,97 @@
 # CARP
 
-Language:
-English | [中文](README.zh.md)
+CARP is a query-aware router for a fixed candidate set of LLM-orchestrated services. Its three production components are:
 
-# CARP: Query-Aware QoS Routing for LLM-Orchestrated Services
+- an anchor-relative continuous uplift scorer, using a frozen query encoder and a small MLP head;
+- DynCost, a query-only total-token predictor with a robust per-service baseline and residual model;
+- P3, a validation-calibrated Pareto-compromise policy.
 
-Service computing has long focused on selecting or composing services under Quality of Service (QoS) constraints. With the emergence of large language models (LLMs), a new class of LLM-orchestrated services has arisen, where complex multi-stage pipelines make service effectiveness and execution cost strongly dependent on the input query and internal orchestration process. This challenges conventional QoS-aware service selection methods that rely primarily on stable service-level characteristics. In this paper, we study a practical pre-execution routing setting for LLM-orchestrated services, where the router must select a service strategy without observing the realized quality or exact execution cost of all candidates. To address this problem, we propose CARP, a query-aware and cost-profile-guided QoS routing framework. CARP formulates service routing as a query-level decision problem, uses a preference-based scoring model to estimate fine-grained service suitability, and applies a Pareto-compromise routing policy that combines suitability scores with historical service-level cost priors. This enables lightweight and interpretable service selection under partial QoS observability. Extensive experiments on multiple multi-hop question answering benchmarks demonstrate that CARP achieves favorable empirical quality-cost trade-offs compared with fixed pipelines and representative routing baselines. In particular, CARP achieves the highest efficiency scores of 16.49, 15.60, and 15.93 on HotpotQA, MultiHop-RAG, and 2WikiMultiHopQA, respectively, while introducing only millisecond-level routing overhead.
+This repository contains the main method only. Dataset construction, figure generation, ablations, and other paper-specific experiment code are intentionally excluded. The pre-reorganization repository snapshot remains locally in `legacy_original/` and is ignored by Git.
 
-## Goal
+## Installation
 
-This repository implements the CARP pipeline described in `method.tex`:
+~~~bash
+python -m pip install -e .
+~~~
 
-1. Scoring model: `pairwise + pointwise + dynamic margin`
-2. Router: `dynamic_cost + pareto_compromise`
-3. Main config: `configs/qwen_pairwise_pairweight_soft_pointwise_margin.yaml`
+The implementation requires Python 3.10 or newer. The first use of the frozen encoder downloads the configured Hugging Face model unless it is already cached.
 
-This project is designed for query-level pre-execution routing across multiple GraphRAG/QA methods. Instead of invoking every candidate first, it predicts which method is most suitable for the current question and combines that prediction with historical cost signals to achieve a better practical trade-off between answer quality and token/time cost.
+## Repository layout
 
-Chinese version: [README.zh.md](README.zh.md)
+~~~text
+src/carp/
+  scoring.py    frozen query encoder and uplift head
+  cost.py       query-only DynCost estimator
+  routing.py    P3 Pareto-compromise router
+  io.py         canonical JSONL validation and I/O
+scripts/
+  train_uplift.py, predict_uplift.py
+  train_dyncost.py, predict_cost.py
+  route_p3.py
+configs/carp.yaml  paper-default component settings
+~~~
 
-## Environment setup
+## Input format
 
-### Option A: `venv`
+Training inputs are JSONL files. Each row records one complete query and observed executions for every fixed candidate service:
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+~~~json
+{"id":"q-001","question":"...","methods":{"qagn":{"f1":0.42,"total_tokens":8500},"dalk":{"f1":0.46,"total_tokens":2600},"gr":{"f1":0.44,"total_tokens":4200},"hippo":{"f1":0.47,"total_tokens":6400},"lgraph":{"f1":0.45,"total_tokens":5100},"light":{"f1":0.41,"total_tokens":2300}}}
+~~~
 
-### Option B: `conda`
+The default candidate order is `qagn dalk gr hippo lgraph light`, with QAGN as the zero-uplift anchor. All training rows must contain F1 and total-token observations for every candidate. This fixed-candidate assumption is deliberate: a newly added service needs sufficient observations to train both its quality coordinate and DynCost head before it can be routed.
 
-```bash
-conda create -n carp python=3.10 -y
-conda activate carp
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+## Data ingestion
 
-### PyTorch note
+The command-line components consume the canonical JSONL above. For the archived repository data, `scripts/prepare_execution_data.py` reads the six per-service execution logs under `legacy_original/dataset/<service>/<benchmark>/results.score.json` and `legacy_original/dataset/data_splits.json`. It keeps only query IDs shared by all requested services and writes one query-level record for each train, validation, and test split. The legacy `dataset/pairwise` CSV files are not used by the revised uplift formulation.
 
-`requirements.txt` includes a generic `torch` dependency. If you need GPU PyTorch, install the proper CUDA build from the official PyTorch instructions first, then run:
+~~~bash
+python scripts/prepare_execution_data.py \
+  --dataset-dir legacy_original/dataset --benchmark hotpot \
+  --output-dir data/hotpot
+~~~
 
-```bash
-pip install -r requirements.txt
-```
+For a fresh clone, supply an externally obtained directory with this same layout through `--dataset-dir`; neither raw execution logs nor derived split files are versioned.
 
-### Optional dependency
+## Main workflow
 
-If you want to use `train_pairwise.py --deepspeed ...`, install:
+1. Fit the uplift scorer using only training labels and select its checkpoint on validation MSE.
 
-```bash
-pip install deepspeed
-```
+~~~bash
+python scripts/train_uplift.py \
+  --train data/hotpot/train.jsonl --validation data/hotpot/validation.jsonl \
+  --output checkpoints/uplift.pt \
+  --methods qagn dalk gr hippo lgraph light
+~~~
 
-## Run pipeline
+2. Fit DynCost on the same training queries and produce validation/test predictions.
 
-### 1. Rebuild Hotpot train/val/test
+~~~bash
+python scripts/train_dyncost.py \
+  --train data/hotpot/train.jsonl --output checkpoints/dyncost.joblib \
+  --methods qagn dalk gr hippo lgraph light
+python scripts/predict_cost.py --model checkpoints/dyncost.joblib \
+  --input data/hotpot/validation.jsonl --output artifacts/validation_cost.jsonl \
+  --methods qagn dalk gr hippo lgraph light
+~~~
 
-```bash
-python prepare_data.py
-```
+3. Predict uplift coordinates for validation and test queries, then calibrate and apply P3. The router estimates global coordinate quantiles from validation predictions only; Pareto membership itself uses raw uplift and predicted token cost.
 
-This step aggregates the six method result files under `dataset/<method>/hotpot/`
-according to `dataset/data_splits.json`.
+~~~bash
+python scripts/predict_uplift.py --checkpoint checkpoints/uplift.pt \
+  --input data/hotpot/validation.jsonl --output artifacts/validation_uplift.jsonl
+python scripts/route_p3.py \
+  --validation-uplifts artifacts/validation_uplift.jsonl \
+  --validation-costs artifacts/validation_cost.jsonl \
+  --test-uplifts artifacts/test_uplift.jsonl \
+  --test-costs artifacts/test_cost.jsonl \
+  --output artifacts/test_routes.jsonl
+~~~
 
-### 2. Build pairwise data
+Run `python scripts/<name>.py --help` for all options. Generated data, checkpoints, artifacts, and the old repository snapshot are ignored by Git.
 
-```bash
-python create_pairwise_dataset.py
-```
+## Validation
 
-This also exports transfer-test question lists:
-
-- `dataset/eval_questions/multihop.csv`
-- `dataset/eval_questions/2wiki.csv`
-
-Current shared-question counts:
-
-- `multihop`: 2556
-- `2wiki`: 1495
-
-### 3. Build router training archive
-
-```bash
-python router/build_hotpot_trainset.py
-```
-
-### 4. Train the scorer
-
-```bash
-python train_pairwise.py \
-  --config configs/qwen_pairwise_pairweight_soft_pointwise_margin.yaml
-```
-
-### 5. Generate test scores
-
-Hotpot:
-
-```bash
-CONFIG_PATH=configs/qwen_pairwise_pairweight_soft_pointwise_margin.yaml \
-MODEL_PATH=outputs/pairwise_pairweight_soft_pointwise_margin/last_model.pt \
-DATASET_NAME=hotpot \
-P2L_OUTPUT_FILE=router/results/scorer/hotpot.jsonl \
-python generate_test_scores.py
-```
-
-Use the same pattern for `multihop` and `2wiki`.
-
-### 6. Run dynamic-cost routing
-
-```bash
-python router/dynamic_cost_router.py \
-  --scored-path router/results/scorer/hotpot.jsonl \
-  --train-jsonl-path router/data/hotpot_train.jsonl \
-  --output-jsonl router/results/dynamic_cost/hotpot.routed.jsonl \
-  --summary-json router/results/dynamic_cost/hotpot.summary.json
-```
-
-Use the same pattern for `multihop` and `2wiki`.
-
-## Metrics
-
-`router/results/dynamic_cost/*.summary.json` contains:
-
-- `router_metrics.f1`
-- `router_metrics.avg_token_cost`
-- `router_metrics.avg_time_cost`
-- `router_metrics.efficiency_balance`
-- `router_metrics.cpp`
-- `router_metrics.icer_qagn`
-
-These map to:
-
-- `F1`
-- `Tokens`
-- `Time`
-- `Effic.`
-- `CPP`
-- `ICER-Q`
+~~~bash
+python -m pytest -q
+~~~

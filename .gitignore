@@ -48,3 +48,9 @@ outputs/
 
 # LaTeX sources
 *.tex
+
+# Local data, checkpoints, and the pre-reorganization repository snapshot.
+data/
+artifacts/
+checkpoints/
+legacy_original/

@@ -1,9 +1,6 @@
-numpy==1.26.4
-pandas==2.2.3
-PyYAML==6.0.2
-scipy==1.15.0
-scikit-learn==1.6.0
-tqdm==4.67.1
-matplotlib==3.10.7
-transformers==4.53.0
-torch>=2.5.1
+numpy>=1.26
+scikit-learn>=1.6
+torch>=2.5
+transformers>=4.53
+tqdm>=4.67
+joblib>=1.4
