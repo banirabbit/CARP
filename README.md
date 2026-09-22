@@ -6,7 +6,6 @@ CARP is a query-aware router for a fixed candidate set of LLM-orchestrated servi
 - DynCost, a query-only total-token predictor with a robust per-service baseline and residual model;
 - P3, a validation-calibrated Pareto-compromise policy.
 
-This repository contains the main method only. Dataset construction, figure generation, ablations, and other paper-specific experiment code are intentionally excluded. The pre-reorganization repository snapshot remains locally in `legacy_original/` and is ignored by Git.
 
 ## Installation
 
